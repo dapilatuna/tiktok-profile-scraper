@@ -218,3 +218,24 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Entorno virtual
+.venv-scraper/
+.venv/
+
+# IntelliJ IDEA
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# Credenciales y sesiones
+.env
+.env.*
+*.session
+.streamlit/secrets.toml
+
+# Datos locales
+data/*.json
+data/*.csv
