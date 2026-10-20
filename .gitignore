@@ -239,3 +239,20 @@ __pycache__/
 # Datos locales
 data/*.json
 data/*.csv
+
+# Chrome persistent session (cookies and browser data)
+data/chrome_session/
+
+# Browser debugging screenshots
+data/*.png
+data/*.jpg
+data/*.jpeg
+
+# Local browser profiles and temporary files
+data/*.log
+data/*.tmp
+
+# Python environment configuration
+.python-version
+# Debug files
+data/debug_requests.html
