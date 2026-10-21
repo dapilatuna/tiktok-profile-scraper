@@ -133,75 +133,66 @@ with st.form("profile_form"):
     )
 
 
+
 # ==========================================
 # 7. PROFILE AND VIDEO EXTRACTION
 # ==========================================
 
 if search_button:
 
-    # Clear the previous extraction result.
     st.session_state.pop(
         "extraction_result",
         None
     )
 
     try:
-
         valid_username = validate_username(
             username
         )
 
         # --------------------------------------
-        # 7.1 EXTRACT PROFILE
+        # 7.1 OPEN CHROME AND EXTRACT PROFILE
         # --------------------------------------
 
         with st.spinner(
                 "Extrayendo información del perfil..."
         ):
 
-            profile = extract_profile(
-                valid_username
-            )
+            with extract_profile(valid_username) as (page, profile):
+
+                # ----------------------------------
+                # 7.2 EXTRACT VIDEOS AND COMMENTS
+                # ----------------------------------
+
+                try:
+                    with st.spinner(
+                            "Extrayendo videos y comentarios..."
+                    ):
+
+                        video_report = extract_videos(
+                            page,
+                            valid_username,
+                            limit=10
+                        )
+
+                except Exception as error:
+                    video_report = {
+                        "videos": [],
+                        "urls_discovered": 0,
+                        "videos_parsed": 0,
+                        "errors": [str(error)]
+                    }
 
         # --------------------------------------
-        # 7.2 EXTRACT VIDEOS
-        # --------------------------------------
-
-        try:
-
-            with st.spinner(
-                    "Extrayendo videos y comentarios. "
-                    "Este proceso puede tardar "
-                    "varios minutos..."
-            ):
-
-                video_report = extract_videos(
-                    valid_username,
-                    limit=10
-                )
-
-        except Exception as error:
-
-            video_report = {
-                "videos": [],
-                "urls_discovered": 0,
-                "videos_parsed": 0,
-                "errors": [str(error)]
-            }
-
-        # --------------------------------------
-        # 7.3 STRUCTURE RESULTS
+        # 7.3 STRUCTURE AND SAVE RESULTS
         # --------------------------------------
 
         extraction_result = {
             "extracted_at_utc": datetime.now(
                 timezone.utc
             ).isoformat(),
-
             "profile": profile,
-
             "video_report": video_report,
-
             "videos": video_report.get(
                 "videos",
                 []
@@ -213,16 +204,13 @@ if search_button:
         ] = extraction_result
 
     except ValueError as error:
-
         st.error(str(error))
 
     except Exception as error:
-
         st.error(
             "No se pudo completar la extracción: "
             f"{error}"
         )
-
 
 # ==========================================
 # 8. DISPLAY EXTRACTION RESULTS

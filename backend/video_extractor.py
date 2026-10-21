@@ -1,37 +1,29 @@
 import re
-from pathlib import Path
 from urllib.parse import urlparse
 
 from playwright.sync_api import (
-    sync_playwright,
     TimeoutError as PlaywrightTimeoutError,
 )
-
-
-# ==========================================
-# 1. BROWSER SESSION CONFIGURATION
-# ==========================================
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-BROWSER_DATA_DIR = (
-        BASE_DIR / "data" / "chrome_session"
+from backend.video_content_extractor import (
+    enrich_videos_with_comments
 )
+
+
+# ==========================================
+# 1. VIDEO CARD SELECTOR
+# ==========================================
 
 VIDEO_CARD_SELECTOR = (
     '[data-e2e="user-post-item-list"] '
     '[data-e2e="user-post-item"]'
 )
-
-
 # ==========================================
 # 2. VALIDATE VIDEO URLS
 # ==========================================
 
 def canonical_video_url(
         url: str,
-        username: str
-) -> str | None:
+        username: str) -> str | None:
 
     parsed_url = urlparse(url)
 
@@ -107,7 +99,7 @@ def parse_view_count(
 def discover_videos(
         page,
         username: str,
-        max_candidates: int = 24,
+        normal_limit: int = 10,
         max_scrolls: int = 5
 ) -> tuple[list, list]:
 
@@ -115,6 +107,7 @@ def discover_videos(
 
     found_videos = {}
     errors = []
+    normal_count = 0
 
     print("Opening profile...")
 
@@ -268,18 +261,32 @@ def discover_videos(
                 "comments_extracted": 0
             }
 
+
+            # Count only non-pinned videos.
+            if not is_pinned:
+                normal_count += 1
+
+            # Stop after finding ten normal videos.
+            if normal_count >= normal_limit:
+                break
+
         print(
             "Videos discovered from DOM:",
-            len(found_videos)
+            len(found_videos),
+            "| Pinned:",
+            sum(
+                video["pinned"]
+                for video in found_videos.values()
+            ),
+            "| Normal:",
+            normal_count
         )
 
-        if len(found_videos) >= max_candidates:
+        # Stop scrolling when the limit is reached.
+        if normal_count >= normal_limit:
             break
 
-        # ----------------------------------
-        # 4.6 SCROLL TO LOAD MORE VIDEOS
-        # ----------------------------------
-
+        # Scroll only if more normal videos are needed.
         if attempt < max_scrolls:
             page.mouse.wheel(0, 1200)
 
@@ -289,100 +296,95 @@ def discover_videos(
         )
 
     return (
-        list(found_videos.values())[:max_candidates],
+        list(found_videos.values()),
         errors
     )
 
 
-# ==========================================
-# 5. OPEN A VIDEO CARD
-# ==========================================
-
-def open_video_card(
-        page,
-        video_url: str
-) -> bool:
-
-    card = page.locator(
-        VIDEO_CARD_SELECTOR
-    ).filter(
-        has=page.locator(
-            f'a[href="{video_url}"]'
-        )
-    ).first
-
-    if card.count() == 0:
-        return False
-
-    card.scroll_into_view_if_needed()
-
-    card.click(timeout=10000)
-
-    return True
 
 
 # ==========================================
 # 6. EXTRACT VIDEOS
 # ==========================================
-
 def extract_videos(
+        page,
         username: str,
         limit: int = 10
 ) -> dict:
 
-    BROWSER_DATA_DIR.mkdir(
-        parents=True,
-        exist_ok=True
+    # Discover pinned videos and ten normal videos.
+    candidates, errors = discover_videos(
+        page,
+        username,
+        normal_limit=limit
     )
 
-    with sync_playwright() as playwright:
+    # Extract data during one visit per candidate.
+    enriched = enrich_videos_with_comments(
+        page,
+        candidates,
+        dates_only=False
+    )
 
-        context = playwright.chromium.launch_persistent_context(
-            user_data_dir=str(BROWSER_DATA_DIR),
-            channel="chrome",
-            headless=False
+    # Normal videos are already in profile order.
+    normal_videos = [
+        video for video in enriched
+        if not video["pinned"]
+    ][:limit]
+
+    pinned_videos = [
+        video for video in enriched
+        if video["pinned"]
+    ]
+
+    def publication_time(video):
+        return video.get("publication_sort_time")
+
+    # Check whether all normal dates were recovered.
+    verified_normals = all(
+        publication_time(video) is not None
+        for video in normal_videos
+    )
+
+    if verified_normals and normal_videos:
+
+        # Include pinned videos only when their dates
+        # can actually be compared.
+        eligible = normal_videos + [
+            video for video in pinned_videos
+            if publication_time(video) is not None
+        ]
+
+        selected = sorted(
+            eligible,
+            key=lambda video: publication_time(video),
+            reverse=True
+        )[:limit]
+
+    else:
+
+        # Do not introduce old or undated pinned videos.
+        selected = normal_videos[:limit]
+
+        errors.append(
+            "No se recuperaron todas las fechas. "
+            "Se conservó el orden de los videos normales."
         )
 
-        try:
+    print("FINAL SELECTED VIDEOS:")
 
-            page = (
-                context.pages[0]
-                if context.pages
-                else context.new_page()
-            )
+    for index, video in enumerate(selected, start=1):
+        print(
+            index,
+            video["id"],
+            video.get("publication_date_label"),
+            "PINNED:",
+            video["pinned"]
+        )
 
-            # ----------------------------------
-            # 6.1 DISCOVER VIDEO CARDS
-            # ----------------------------------
-
-            candidates, errors = discover_videos(
-                page,
-                username
-            )
-
-            # ----------------------------------
-            # 6.2 SELECT DISCOVERED VIDEOS
-            # ----------------------------------
-
-            selected_videos = candidates[:limit]
-
-            # Video details and comments will be
-            # extracted from the DOM after inspecting
-            # the HTML of an opened video.
-
-            final_videos = selected_videos
-
-            print(
-                "Videos extracted from DOM:",
-                len(final_videos)
-            )
-
-            return {
-                "videos": final_videos,
-                "urls_discovered": len(candidates),
-                "videos_parsed": len(candidates),
-                "errors": errors
-            }
-
-        finally:
-            context.close()
+    return {
+        "videos": selected,
+        "urls_discovered": len(candidates),
+        "videos_parsed": len(enriched),
+        "errors": errors
+    }

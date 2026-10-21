@@ -1,7 +1,7 @@
-
 import json
-from datetime import datetime, timezone
-from urllib.parse import parse_qs, urlparse
+import re
+import unicodedata
+from datetime import datetime, timezone, timedelta
 
 from playwright.sync_api import (
     Error as PlaywrightError,
@@ -26,90 +26,132 @@ def to_utc_date(timestamp):
     except (TypeError, ValueError, OverflowError, OSError):
         return None
 
-
-def normalize_comment(
-        comment,
-        video_id,
-        results,
-        parent_id=None
-):
-    comment_id = str(comment.get("cid") or "")
-
-    if not comment_id or comment_id in results:
-        return
-
-    author = comment.get("user") or {}
-    reply_id = str(comment.get("reply_id") or "0")
-
-    results[comment_id] = {
-        "id": comment_id,
-        "video_id": str(video_id),
-        "parent_comment_id": parent_id or (
-            reply_id if reply_id != "0" else None
-        ),
-        "username": author.get("unique_id"),
-        "author_name": author.get("nickname"),
-        "text": comment.get("text"),
-        "created_at_utc": to_utc_date(
-            comment.get("create_time")
-        ),
-        "like_count": comment.get("digg_count"),
-        "reply_count": comment.get(
-            "reply_comment_total", 0
-        ),
-        "language": comment.get("comment_language"),
-        "pinned": comment.get("author_pin"),
-        "liked_by_video_author": comment.get(
-            "is_author_digged"
-        ),
-        "content_type": comment.get("content_type"),
-        "has_images": bool(comment.get("image_list")),
-        "has_sticker": bool(
-            comment.get("cmt_sticker_struct")
-        ),
-    }
-
-    # Include replies returned with the comment.
-    for reply in comment.get("reply_comment") or []:
-
-        if isinstance(reply, dict):
-            normalize_comment(
-                reply,
-                video_id,
-                results,
-                comment_id
-            )
-
-
 # ==========================================
-# 2. IDENTIFY COMMENT RESPONSES
+# 2. READ VIDEO PUBLICATION DATE FROM DOM
 # ==========================================
 
-def is_comment_response(response, video_id):
+def extract_publication_date(page):
 
-    parsed = urlparse(response.url)
+    date_element = page.locator(
+        '[data-e2e="browser-nickname"]'
+    ).first
 
-    if parsed.netloc not in (
-            "tiktok.com",
-            "www.tiktok.com"
-    ):
-        return False
+    try:
+        date_element.wait_for(
+            state="visible",
+            timeout=5000
+        )
 
-    if parsed.path.rstrip("/") != "/api/comment/list":
-        return False
+        visible_text = date_element.inner_text(
+            timeout=3000
+        )
 
-    parameters = parse_qs(parsed.query)
+    except PlaywrightError:
+        return None, None
 
-    return str(video_id) in parameters.get(
-        "aweme_id", []
+    if "·" not in visible_text:
+        return None, None
+
+    date_label = (
+        visible_text.rsplit("·", 1)[-1]
+        .replace("\xa0", " ")
+        .strip()
     )
 
+    normalized = unicodedata.normalize(
+        "NFKD",
+        date_label.casefold()
+    ).encode("ascii", "ignore").decode("ascii")
+
+    normalized = " ".join(normalized.split())
+    now = datetime.now(timezone.utc)
+
+    match = re.fullmatch(
+        r"(?:hace\s+)?(\d+|un|una)\s+"
+        r"(min(?:uto)?s?|h(?:ora)?s?|"
+        r"d(?:ia)?s?|sem(?:ana)?s?|"
+        r"mes(?:es)?|a(?:no)?s?)",
+        normalized
+    )
+
+    if match:
+        amount_text, unit = match.groups()
+        amount = (
+            1 if amount_text in ("un", "una")
+            else int(amount_text)
+        )
+
+        if unit.startswith("min"):
+            delta = timedelta(minutes=amount)
+        elif unit.startswith("h"):
+            delta = timedelta(hours=amount)
+        elif unit.startswith("d"):
+            delta = timedelta(days=amount)
+        elif unit.startswith("sem"):
+            delta = timedelta(weeks=amount)
+        elif unit.startswith("mes"):
+            delta = timedelta(days=30 * amount)
+        else:
+            delta = timedelta(days=365 * amount)
+
+        return date_label, (
+                now - delta
+        ).timestamp()
+
+    if normalized == "ayer":
+        return date_label, (
+                now - timedelta(days=1)
+        ).timestamp()
+
+    try:
+        if re.fullmatch(
+                r"\d{4}-\d{1,2}-\d{1,2}",
+                normalized
+        ):
+            date = datetime.strptime(
+                normalized,
+                "%Y-%m-%d"
+            ).replace(tzinfo=timezone.utc)
+
+        elif re.fullmatch(
+                r"\d{1,2}-\d{1,2}",
+                normalized
+        ):
+            month, day = map(
+                int,
+                normalized.split("-")
+            )
+
+            date = datetime(
+                now.year,
+                month,
+                day,
+                tzinfo=timezone.utc
+            )
+
+            if date > now + timedelta(days=1):
+                date = date.replace(
+                    year=now.year - 1
+                )
+
+        else:
+            return date_label, None
+
+        return date_label, date.timestamp()
+
+    except ValueError:
+        return date_label, None
 
 # ==========================================
 # 3. OPEN COMMENTS PANEL
 # ==========================================
 
 def open_comments_if_needed(page):
+
+    if page.locator(
+            '[data-e2e="comment-level-1"]'
+    ).count() > 0:
+        return True
 
     selectors = (
         '[data-e2e="browse-comment-icon"]',
@@ -137,419 +179,547 @@ def open_comments_if_needed(page):
 # ==========================================
 
 def scroll_comments(page):
-
-    page.evaluate(
-        """() => {
-            const selectors = [
-                '[data-e2e="comment-list"]',
-                '[class*="CommentList"]',
-                '[class*="CommentContainer"]'
-            ];
-
-            for (const selector of selectors) {
-                for (
-                    const node of document.querySelectorAll(selector)
-                ) {
-                    let element = node;
-
-                    while (element) {
-                        const style = getComputedStyle(element);
-
-                        const hasContent =
-                            element.scrollHeight >
-                            element.clientHeight + 30;
-
-                        const isScrollable =
-                            /auto|scroll/.test(style.overflowY);
-
-                        if (hasContent && isScrollable) {
-                            element.scrollTop += Math.max(
-                                400,
-                                element.clientHeight * 0.9
-                            );
-                            return;
-                        }
-
-                        element = element.parentElement;
-                    }
-                }
-            }
-
-            window.scrollBy(0, 700);
-        }"""
+    # Scroll where the visible comments appear.
+    comments = page.locator(
+        '[data-e2e="comment-level-1"], '
+        '[data-e2e="comment-level-2"]'
     )
 
+    if comments.count():
+        try:
+            last_comment = comments.last
 
-# ==========================================
-# 5. COLLECT OBSERVED COMMENTS
-# ==========================================
+            last_comment.scroll_into_view_if_needed(
+                timeout=3000
+            )
 
+            last_comment.hover(timeout=3000)
+
+            page.mouse.wheel(0, 1000)
+
+            return True
+
+        except PlaywrightError:
+            pass
+
+    panel = page.locator(
+        '[data-e2e="search-comment-container"]'
+    ).first
+
+    if panel.count():
+        try:
+            panel.hover(timeout=2000)
+            page.mouse.wheel(0, 1000)
+            return True
+
+        except PlaywrightError:
+            pass
+
+    return False
+
+
+def expand_visible_replies(page, max_clicks=3):
+    # Expand visible reply groups.
+    pattern = re.compile(
+        r"(?:ver|mostrar|cargar|view|show|load)"
+        r".{0,35}(?:respuestas?|replies|reply)",
+        re.IGNORECASE
+    )
+
+    controls = page.get_by_text(pattern)
+    clicked = 0
+
+    for index in range(
+            min(controls.count(), max_clicks)
+    ):
+        try:
+            control = controls.nth(index)
+
+            if control.is_visible():
+                control.click(timeout=1500)
+                clicked += 1
+
+        except PlaywrightError:
+            continue
+
+    return clicked
+# ==========================================
+# 5. COLLECT COMMENTS FROM DOM
+# ==========================================
 def collect_comments(
         page,
         video_id,
-        captured_responses,
-        max_scrolls=6
+        max_scrolls=50,
+        expected_count=None
 ):
+    """Collect comments and replies loaded in the DOM."""
 
-    comments_by_id = {}
+    collected = {}
+    previous_count = 0
+    stagnant_rounds = 0
 
-    processed = 0
-    response_pages = 0
-    response_errors = 0
-    total = None
-    has_more = None
+    open_comments_if_needed(page)
+    page.wait_for_timeout(1000)
 
-    page.wait_for_timeout(1200)
+    for attempt in range(max_scrolls + 1):
 
-    if not captured_responses:
-        open_comments_if_needed(page)
+        expanded = expand_visible_replies(page)
 
-    # --------------------------------------
-    # READ RECEIVED COMMENT RESPONSES
-    # --------------------------------------
+        if expanded:
+            page.wait_for_timeout(500)
 
-    def process_responses():
+        texts = page.locator(
+            '[data-e2e="comment-level-1"], '
+            '[data-e2e="comment-level-2"]'
+        )
 
-        nonlocal processed
-        nonlocal response_pages
-        nonlocal response_errors
-        nonlocal total
-        nonlocal has_more
+        for index in range(texts.count()):
 
-        while processed < len(captured_responses):
-
-            response = captured_responses[processed]
-            processed += 1
+            text_node = texts.nth(index)
 
             try:
-                if response.status != 200:
-                    response_errors += 1
+                content = text_node.inner_text(
+                    timeout=1500
+                ).strip()
+
+                if not content:
                     continue
 
-                response.finished()
-                payload = response.json()
+                container = text_node.locator(
+                    'xpath=ancestor::div'
+                    '[@data-comment-ui-enabled="true"][1]'
+                )
 
-            except (ValueError, PlaywrightError):
-                response_errors += 1
+                if not container.count():
+                    continue
+
+                level = (
+                    "2"
+                    if text_node.get_attribute("data-e2e")
+                       == "comment-level-2"
+                    else "1"
+                )
+
+                author = container.locator(
+                    f'a:has([data-e2e="comment-username-{level}"])'
+                ).first
+
+                if not author.count():
+                    author = container.locator(
+                        'a[href*="/@"]'
+                    ).last
+
+                author_url = (
+                    author.get_attribute("href")
+                    if author.count()
+                    else None
+                )
+
+                username = (
+                    author_url.split("/@", 1)[1]
+                    .split("/")[0]
+                    .split("?")[0]
+                    if author_url and "/@" in author_url
+                    else None
+                )
+
+                author_name = (
+                    author.inner_text(
+                        timeout=1500
+                    ).strip()
+                    if author.count()
+                    else None
+                )
+
+                date_node = container.locator(
+                    f'[data-e2e="comment-time-{level}"]'
+                ).first
+
+                label = (
+                    date_node.inner_text().strip()
+                    if date_node.count()
+                    else None
+                )
+
+                like_node = container.locator(
+                    '[data-e2e="comment-like-count"]'
+                ).first
+
+                like_count = (
+                    parse_metric(like_node.inner_text())
+                    if like_node.count()
+                    else None
+                )
+
+                comment_id = container.get_attribute("id")
+
+                key = comment_id or (
+                    username,
+                    content,
+                    label
+                )
+
+                if key in collected:
+                    continue
+
+                collected[key] = {
+                    "id": comment_id,
+                    "video_id": str(video_id),
+                    "parent_comment_id": None,
+                    "username": username,
+                    "author_name": author_name,
+                    "text": content,
+                    "created_at_utc": None,
+                    "published_label": label,
+                    "like_count": like_count,
+                    "reply_count": None
+                }
+
+            except PlaywrightError:
                 continue
 
-            if not isinstance(payload, dict):
-                continue
+        current_count = len(collected)
 
-            if payload.get("status_code", 0) != 0:
-                response_errors += 1
-                continue
-
-            response_pages += 1
-
-            has_more = payload.get("has_more")
-            total = payload.get("total", total)
-
-            for comment in payload.get("comments") or []:
-
-                if isinstance(comment, dict):
-                    normalize_comment(
-                        comment,
-                        video_id,
-                        comments_by_id
-                    )
-
-    # --------------------------------------
-    # READ MORE COMMENTS WHEN AVAILABLE
-    # --------------------------------------
-
-    quiet_rounds = 0
-
-    for _ in range(max_scrolls):
-
-        page.wait_for_timeout(1000)
-
-        previous = (
-            len(comments_by_id),
-            response_pages
-        )
-
-        process_responses()
-
-        if has_more in (0, False):
+        if (
+                expected_count is not None
+                and current_count >= expected_count
+        ):
             break
 
-        current = (
-            len(comments_by_id),
-            response_pages
-        )
-
-        if current == previous:
-            quiet_rounds += 1
+        if (
+                current_count == previous_count
+                and expanded == 0
+        ):
+            stagnant_rounds += 1
         else:
-            quiet_rounds = 0
+            stagnant_rounds = 0
 
-        if quiet_rounds >= 3:
+        previous_count = current_count
+
+        if stagnant_rounds >= 5:
             break
 
-        try:
-            scroll_comments(page)
+        if attempt < max_scrolls:
 
-        except PlaywrightError:
-            break
+            if not scroll_comments(page):
+                break
 
-    page.wait_for_timeout(400)
-    process_responses()
+            page.wait_for_timeout(900)
+
+    print(
+        "Comments recovered:",
+        len(collected),
+        "/",
+        expected_count
+    )
 
     return {
-        "comments": list(comments_by_id.values()),
-        "comments_extracted": len(comments_by_id),
-        "comment_response_pages": response_pages,
-        "comment_total_from_response": total,
+        "comments": list(collected.values()),
+        "comments_extracted": len(collected),
         "more_comments_indicated": (
-            bool(has_more)
-            if has_more is not None
-            else None
-        ),
-        "comment_response_errors": response_errors,
+                expected_count is not None
+                and len(collected) < expected_count
+        )
     }
 
-
 # ==========================================
-# 6. EXISTING VIDEO DETAIL EXTRACTION
+# 6. EXTRACT VIDEO DATA FROM HTML
 # ==========================================
 
-def extract_video_content(
-        page,
-        video_url,
-        include_comments=False
-):
-    """
-    Preserve compatibility with the existing
-    video extractor.
-    """
+def parse_metric(text):
 
-    video_id = urlparse(
-        video_url
-    ).path.rstrip("/").split("/")[-1]
+    if text is None:
+        return None
 
-    captured_responses = []
+    value = str(text).strip().upper().replace(" ", "")
 
-    def observe_response(response):
+    match = re.fullmatch(
+        r"([\d.,]+)([KMB]?)",
+        value
+    )
 
-        if is_comment_response(response, video_id):
-            captured_responses.append(response)
+    if not match:
+        return None
 
-    if include_comments:
-        page.on("response", observe_response)
+    number, suffix = match.groups()
+
+    if suffix:
+        number = number.replace(",", ".")
+    else:
+        number = number.replace(",", "")
 
     try:
-
-        response = page.goto(
-            video_url,
-            wait_until="domcontentloaded",
-            timeout=30000
+        return round(
+            float(number) * {
+                "": 1,
+                "K": 1000,
+                "M": 1000000,
+                "B": 1000000000
+            }[suffix]
         )
 
-        if response is None or response.status >= 400:
-            raise ValueError(
-                "No se pudo abrir el video."
+    except ValueError:
+        return None
+
+
+def extract_video_metadata(page, video_id):
+    """Read the video's HTML and embedded page data."""
+
+    def visible_text(selector):
+
+        element = page.locator(selector).first
+
+        if element.count() == 0:
+            return None
+
+        try:
+            return element.inner_text(
+                timeout=2000
+            ).strip()
+
+        except PlaywrightError:
+            return None
+
+    metadata = {}
+
+    # Read data embedded in the HTML document.
+    script = page.locator(
+        'script#__UNIVERSAL_DATA_FOR_REHYDRATION__'
+    ).first
+
+    if script.count():
+
+        try:
+            html_data = json.loads(
+                script.text_content(timeout=3000) or "{}"
             )
 
-        script = page.locator(
-            "script#__UNIVERSAL_DATA_FOR_REHYDRATION__"
-        )
-
-        script.wait_for(
-            state="attached",
-            timeout=15000
-        )
-
-        payload = json.loads(
-            script.text_content(timeout=10000) or "{}"
-        )
-
-        scope = payload.get("__DEFAULT_SCOPE__") or {}
-
-        detail = scope.get("webapp.video-detail") or {}
-
-        item = (
-                (detail.get("itemInfo") or {})
-                .get("itemStruct") or {}
-        )
-
-        if not item:
-            raise ValueError(
-                "No se encontró información del video."
+            scope = html_data.get(
+                "__DEFAULT_SCOPE__", {}
             )
 
-        stats = item.get("stats") or {}
-        video = item.get("video") or {}
-        music = item.get("music") or {}
-        author = item.get("author") or {}
+            detail = scope.get(
+                "webapp.video-detail"
+            ) or {}
 
-        result = {
-            "id": str(item.get("id") or video_id),
-            "url": video_url,
-            "description": item.get("desc"),
-            "created_at_utc": to_utc_date(
-                item.get("createTime")
-            ),
-            "create_time": item.get("createTime"),
-
-            "author": {
-                "username": author.get("uniqueId"),
-                "name": author.get("nickname"),
-                "verified": author.get("verified"),
-            },
-
-            "view_count": stats.get("playCount"),
-            "like_count": stats.get("diggCount"),
-            "comment_count": stats.get("commentCount"),
-            "share_count": stats.get("shareCount"),
-            "save_count": stats.get("collectCount"),
-
-            "stats": stats,
-            "stats_v2": item.get("statsV2") or {},
-
-            "hashtags": [
-                tag.get("title")
-                for tag in item.get("challenges") or []
-                if isinstance(tag, dict)
-                           and tag.get("title")
-            ],
-
-            "mentions": [
-                entry.get("userUniqueId")
-                for entry in item.get("textExtra") or []
-                if isinstance(entry, dict)
-                             and entry.get("userUniqueId")
-            ],
-
-            "music": {
-                "id": music.get("id"),
-                "title": music.get("title"),
-                "author": music.get("authorName"),
-                "original": music.get("original"),
-            },
-
-            "video": {
-                "duration_seconds": video.get("duration"),
-                "width": video.get("width"),
-                "height": video.get("height"),
-                "ratio": video.get("ratio"),
-                "format": video.get("format"),
-                "cover": video.get("cover"),
-            },
-
-            "region": item.get("region"),
-            "is_ad": item.get("isAd"),
-            "is_pinned": item.get("isPinnedItem"),
-            "text_extra": item.get("textExtra"),
-            "challenges": item.get("challenges"),
-        }
-
-        if include_comments:
-
-            comment_data = collect_comments(
-                page,
-                video_id,
-                captured_responses
+            item = (
+                    (detail.get("itemInfo") or {})
+                    .get("itemStruct") or {}
             )
 
-            result.update(comment_data)
+            # Never accept another video's data.
+            if str(item.get("id")) != str(video_id):
 
-        return result
+                item = next(
+                    (
+                        entry
+                        for entry in scope.get(
+                        "webapp.updated-items", []
+                    )
+                        if str(entry.get("id"))
+                           == str(video_id)
+                    ),
+                    {}
+                )
 
-    finally:
+            if item:
 
-        if include_comments:
-            page.remove_listener(
-                "response",
-                observe_response
-            )
+                stats = item.get("stats") or {}
+                music = item.get("music") or {}
+                movie = item.get("video") or {}
+
+                hashtags = [
+                    entry.get("title")
+                    for entry in item.get("challenges", [])
+                    if entry.get("title")
+                ]
+
+                timestamp = item.get("createTime")
+
+                duration = parse_metric(
+                    movie.get("duration")
+                )
+
+                metadata = {
+                    "create_time": (
+                        int(timestamp)
+                        if timestamp
+                        else 0
+                    ),
+                    "description": (
+                            item.get("desc") or ""
+                    ),
+                    "views": parse_metric(
+                        stats.get("playCount")
+                    ),
+                    "likes": parse_metric(
+                        stats.get("diggCount")
+                    ),
+                    "comment_count": parse_metric(
+                        stats.get("commentCount")
+                    ),
+                    "shares": parse_metric(
+                        stats.get("shareCount")
+                    ),
+                    "save_count": parse_metric(
+                        stats.get("collectCount")
+                    ),
+                    "duration": (
+                        duration
+                        if duration and duration > 0
+                        else None
+                    ),
+                    "music_title": music.get("title"),
+                    "music_author": music.get("authorName"),
+                    "hashtags": hashtags
+                }
+
+        except (ValueError, TypeError, PlaywrightError):
+            pass
+
+    # Read visible elements when embedded data is missing.
+    # Read visible metrics when embedded data is missing.
+    fallbacks = {
+        "likes": '[data-e2e="browse-like-count"]',
+        "comment_count": '[data-e2e="browse-comment-count"]',
+        "save_count": '[data-e2e="browse-favorite-count"]',
+    }
+
+    for field, selector in fallbacks.items():
+        if metadata.get(field) is None:
+            value = parse_metric(visible_text(selector))
+            if value is not None:
+                metadata[field] = value
+
+    # Match the video ID before reading its share counter.
+    if metadata.get("shares") is None:
+        article = page.locator(
+            'article[data-e2e="recommend-list-item-container"]'
+            f':has([id$="-{video_id}"])'
+        )
+
+        if article.count() == 1:
+            counter = article.locator(
+                '[data-e2e="share-count"]'
+            ).first
+
+            if counter.count():
+                try:
+                    metadata["shares"] = parse_metric(
+                        counter.inner_text(timeout=2000)
+                    )
+                except PlaywrightError:
+                    pass
+
+    if not metadata.get("description"):
+        description = visible_text(
+            '[data-e2e="browse-video-desc"]'
+        )
+        if description:
+            metadata["description"] = description
+
+    if not metadata.get("hashtags"):
+        tags = page.locator(
+            '[data-e2e="browse-video-desc"] a[href^="/tag/"]'
+        ).all_text_contents()
+
+        metadata["hashtags"] = [
+            tag.strip().lstrip("#")
+            for tag in tags
+            if tag.strip()
+        ]
+
+    if not metadata.get("music_title"):
+        metadata["music_title"] = visible_text(
+            '[data-e2e="browse-music"]'
+        )
+
+    if not metadata.get("duration"):
+        player = page.locator("video").first
+
+        if player.count():
+            try:
+                value = player.evaluate(
+                    "(node) => Number.isFinite(node.duration) "
+                    "? Math.round(node.duration) : null"
+                )
+
+                if value and value > 0:
+                    metadata["duration"] = value
+
+            except PlaywrightError:
+                pass
+
+    return metadata
+
+    return metadata
 
 
 # ==========================================
 # 7. INTEGRATED COMMENT EXTRACTION
 # ==========================================
 
-def enrich_videos_with_comments(page, videos):
-    """
-    Collect comments using the browser session
-    that already discovered the profile videos.
-    """
 
-    context = page.context
+def enrich_videos_with_comments(
+        page,
+        videos,
+        dates_only=False
+):
+    """Extract video data using the existing Chrome session."""
+
     profile_url = page.url
 
     for index, video in enumerate(videos, start=1):
 
         video_id = str(video.get("id") or "")
 
-        # Skip videos without comments.
-        if not video_id or video.get("comment_count") == 0:
+        if not video_id:
             continue
 
-        captured_responses = []
-
-        existing_pages = set(context.pages)
         extra_pages = []
-        navigation_failed = False
-
-        # ----------------------------------
-        # OBSERVE COMMENT RESPONSES
-        # ----------------------------------
-
-        def observe_response(response):
-
-            if is_comment_response(response, video_id):
-                captured_responses.append(response)
-
-        context.on("response", observe_response)
+        previous_pages = set(page.context.pages)
+        stop_processing = False
 
         try:
-
             print(
-                f"Collecting comments "
-                f"{index}/{len(videos)}: {video_id}"
+                f"Reading video {index}/{len(videos)}: "
+                f"{video_id}"
             )
 
-            # Find the video card on the profile.
+            # Find the corresponding video card.
             card = page.locator(
                 f'a[href*="/video/{video_id}"]'
             ).first
 
-            # Some cards appear after scrolling.
-            for _ in range(6):
+            for attempt in range(8):
 
-                if card.count():
+                if card.count() > 0:
                     break
 
                 page.mouse.wheel(0, 1000)
-                page.wait_for_timeout(650)
+                page.wait_for_timeout(700)
 
-            if not card.count():
-
-                video["comments_error"] = (
-                    "No se encontró la tarjeta "
-                    "de este video en el perfil."
+            if card.count() == 0:
+                raise ValueError(
+                    "No se encontró la tarjeta del video."
                 )
 
-                continue
-
-            # ----------------------------------
-            # OPEN VIDEO FROM EXISTING PROFILE
-            # ----------------------------------
-
+            # Open by clicking, not by direct URL navigation.
             card.scroll_into_view_if_needed(
                 timeout=10000
             )
 
+            print("BEFORE VIDEO CLICK:", video_id, flush=True)
+
             card.click(timeout=12000)
 
-            page.wait_for_timeout(1800)
+            print("AFTER VIDEO CLICK:", video_id, flush=True)
 
-            # TikTok may open a new tab or
-            # display the video in the same page.
+            page.wait_for_timeout(1500)
+            # Reuse this browser, including any tab opened by the click.
             extra_pages = [
-                tab for tab in context.pages
-                if tab not in existing_pages
+                tab for tab in page.context.pages
+                if tab not in previous_pages
             ]
 
             active_page = (
@@ -558,124 +728,191 @@ def enrich_videos_with_comments(page, videos):
                 else page
             )
 
-            # ----------------------------------
-            # CHECK SECURITY VERIFICATION
-            # ----------------------------------
-
-            challenge = active_page.get_by_text(
-                "Drag the slider to fit the puzzle",
-                exact=False
-            )
-
-            if challenge.count():
-
-                video["comments_error"] = (
-                    "TikTok solicitó una "
-                    "verificación de seguridad."
+            try:
+                active_page.locator(
+                    '[data-e2e="browser-nickname"], '
+                    '[data-e2e="browse-like-count"], '
+                    '[data-e2e="like-count"], '
+                    '[data-e2e="comment-count"], '
+                    '[data-e2e="video-desc"]'
+                ).first.wait_for(
+                    state="visible",
+                    timeout=30000
                 )
 
-                navigation_failed = True
+            except PlaywrightTimeoutError:
+                print(
+                "Video content did not load within 30 seconds:",
+                video_id
+            )
+
+            if (
+                    "/video/" in active_page.url
+                    and f"/video/{video_id}" not in active_page.url
+            ):
+                raise ValueError(
+                    "Se abrió una publicación diferente."
+                )
+
+            # Extract all available video metadata.
+            metadata = extract_video_metadata(
+                active_page,
+                video_id
+            )
+
+            for key, value in metadata.items():
+                if value is not None:
+                    video[key] = value
+
+            # Determine publication date.
+            timestamp = video.get("create_time")
+
+            if timestamp:
+
+                video["publication_sort_time"] = float(
+                    timestamp
+                )
+
+                video["created_at_utc"] = to_utc_date(
+                    timestamp
+                )
+
+                video["publication_date_label"] = (
+                    video["created_at_utc"]
+                )
 
             else:
 
-                # ----------------------------------
-                # COLLECT COMMENTS AND REPLIES
-                # ----------------------------------
-
-                comments_data = collect_comments(
-                    active_page,
-                    video_id,
-                    captured_responses,
-                    max_scrolls=6
+                label, approximate_time = (
+                    extract_publication_date(active_page)
                 )
 
-                video.update(comments_data)
-
-                if (
-                        comments_data["comment_response_pages"]
-                        == 0
-                ):
-
-                    video["comments_error"] = (
-                        "No se recibió una respuesta "
-                        "de comentarios para este video."
+                if approximate_time is not None:
+                    video["publication_sort_time"] = (
+                        approximate_time
                     )
 
-                print(
-                    "Comments extracted:",
-                    video["comments_extracted"]
-                )
+                if label:
+                    video["publication_date_label"] = label
+                    video["created_at_utc"] = label
 
-        except (PlaywrightError, ValueError) as error:
+            # Read comments during the same video visit.
+            if not dates_only:
+
+                if video.get("comment_count") == 0:
+                    video["comments"] = []
+                    video["comments_extracted"] = 0
+
+                else:
+                    comments_data = collect_comments(
+                        active_page,
+                        video_id,
+                        max_scrolls=50,
+                        expected_count=video.get("comment_count")
+                    )
+
+                    video.update(comments_data)
+
+                    if (
+                            video["comments_extracted"] == 0
+                            and video.get("comment_count")
+                    ):
+                        video["comments_error"] = (
+                            "TikTok no mostró los textos "
+                            "de comentarios en el DOM."
+                        )
+
+                        # Read shares in the full video view, using the same page.
+            if video.get("shares") is None and f"/video/{video_id}" in active_page.url:
+                try:
+                    active_page.reload(
+                        wait_until="domcontentloaded",
+                        timeout=20000
+                    )
+
+                    counter = active_page.locator(
+                        'article[data-e2e="recommend-list-item-container"]'
+                        f':has([id$="-{video_id}"]) [data-e2e="share-count"]'
+                    ).first
+
+                    counter.wait_for(state="attached", timeout=12000)
+
+                    video["shares"] = parse_metric(
+                        counter.inner_text(timeout=3000)
+                    )
+
+                    print("Shares extracted:", video_id, video["shares"])
+
+                except PlaywrightError:
+                    print("Shares unavailable:", video_id)
+
+            print(
+                "Video:",
+                video_id,
+                "| Date:",
+                video.get("publication_date_label"),
+                "| Likes:",
+                video.get("likes"),
+                "| Comments:",
+                video.get("comments_extracted")
+            )
+
+        except (PlaywrightError, ValueError, TypeError) as error:
 
             video["comments_error"] = (
                 str(error).split("\n", 1)[0]
             )
 
             print(
-                "Comment extraction error:",
+                "Video extraction error:",
+                video_id,
                 video["comments_error"]
             )
 
         finally:
 
-            # Stop observing this video's responses.
-            context.remove_listener(
-                "response",
-                observe_response
-            )
-
-            # Close only additional tabs.
+            # Close only tabs opened by the video click.
             for tab in extra_pages:
-
                 try:
                     if not tab.is_closed():
                         tab.close()
-
                 except PlaywrightError:
                     pass
 
-            # ----------------------------------
-            # RETURN TO THE PROFILE
-            # ----------------------------------
-
+            # Restore the original profile page.
             try:
-
-                if (
-                        not page.is_closed()
-                        and page.url != profile_url
-                ):
-
-                    page.go_back(
-                        wait_until="domcontentloaded",
-                        timeout=15000
-                    )
-
-                    page.wait_for_timeout(800)
+                if not page.is_closed():
 
                     if page.url != profile_url:
-                        navigation_failed = True
 
-                elif not page.is_closed():
+                        try:
+                            page.go_back(
+                                wait_until="domcontentloaded",
+                                timeout=15000
+                            )
+                        except PlaywrightError:
+                            pass
 
-                    page.keyboard.press("Escape")
+                        if page.url != profile_url:
+                            page.goto(
+                                profile_url,
+                                wait_until="domcontentloaded",
+                                timeout=30000
+                            )
 
-            except PlaywrightError:
-                navigation_failed = True
+                    else:
+                        page.keyboard.press("Escape")
 
-        # Do not continue navigating if
-        # the profile could not be restored.
-        if navigation_failed:
+                    page.wait_for_timeout(700)
 
-            remaining_videos = videos[index:]
-
-            for remaining_video in remaining_videos:
-
-                remaining_video["comments_error"] = (
-                    "No se consultaron comentarios "
-                    "debido a una restricción anterior."
+            except PlaywrightError as error:
+                print(
+                    "Could not restore profile:",
+                    str(error).split("\n", 1)[0]
                 )
+                stop_processing = True
 
+        if stop_processing:
             break
 
     return videos
