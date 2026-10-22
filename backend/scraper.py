@@ -11,7 +11,8 @@ from backend.extractors.metadata_extractor import (
     to_utc_date
 )
 from backend.extractors.comment_extractor import collect_comments
-
+from backend.parsers.json_parser import read_embedded_json
+from backend.parsers.metric_parser import parse_metric
 
 def enrich_videos_with_comments(
         page,
@@ -73,7 +74,7 @@ def enrich_videos_with_comments(
                 flush=True
             )
 
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(15000)
 
             extra_pages = [
                 tab for tab in page.context.pages
@@ -84,6 +85,18 @@ def enrich_videos_with_comments(
                 extra_pages[-1]
                 if extra_pages
                 else page
+            )
+            print("VIDEO URL:", active_page.url, flush=True)
+
+            html = active_page.content()
+
+            print(
+                "VIDEO HTML CHECK:",
+                "| video_id:", video_id,
+                "| shareCount:", '"shareCount"' in html,
+                "| updated-items:", '"webapp.updated-items"' in html,
+                "| HTML length:", len(html),
+                flush=True
             )
 
             try:
@@ -112,10 +125,11 @@ def enrich_videos_with_comments(
                     "Se abrió una publicación diferente."
                 )
 
+
             metadata = extract_video_metadata(
-                active_page,
-                video_id
-            )
+                    active_page,
+                    video_id
+                )
 
             for key, value in metadata.items():
                 if value is not None:
@@ -259,6 +273,7 @@ def extract_videos(
         username,
         normal_limit=limit
     )
+
 
     enriched = enrich_videos_with_comments(
         page,

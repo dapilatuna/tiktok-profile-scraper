@@ -199,6 +199,13 @@ def extract_video_metadata(page, video_id):
                     {}
                 )
 
+            print(
+                "VIDEO JSON:",
+                video_id,
+                "| found:", bool(item),
+                "| shares:",
+                (item.get("stats") or {}).get("shareCount")
+            )
             if item:
 
                 stats = item.get("stats") or {}
@@ -333,3 +340,4 @@ def extract_video_metadata(page, video_id):
                 pass
 
     return metadata
+

@@ -1,23 +1,26 @@
 
 /* ========================================
-   TIKTOK PROFILE SCRAPER
-   Identidad visual del sistema
+   TIKTOK INTELLIGENCE
+   Identidad visual: Lavanda y Ciruela
 ======================================== */
 
 :root {
-    --navy: #573A37;
-    --turquoise: #B96555;
-    --background: #FFF5EF;
+    --primary: #715B80;
+    --primary-hover: #5C496A;
+    --secondary: #A99BB7;
+    --background: #F8F6FA;
+    --sidebar: #E3DDEA;
     --white: #FFFFFF;
-    --text: #573A37;
+    --text: #302B37;
+    --border: #DDD4E5;
 }
 
 /* Fondo general */
 .stApp {
     background: linear-gradient(
             135deg,
-            #FFF5EF 0%,
-            #FBE4D8 100%
+            #F8F6FA 0%,
+            #F0ECF4 100%
     );
     color: var(--text);
 }
@@ -29,50 +32,103 @@
 
 /* Contenedor principal */
 .block-container {
-    max-width: 1050px;
-    padding-top: 4rem;
+    max-width: 1150px;
+    padding-top: 3rem;
     padding-bottom: 3rem;
 }
 
 /* Titulo principal */
 h1 {
-    color: var(--navy) !important;
+    color: var(--text) !important;
     font-weight: 800 !important;
     letter-spacing: -1px;
 }
 
 /* Titulos secundarios */
 h2, h3 {
-    color: var(--navy) !important;
+    color: var(--primary) !important;
+}
+
+/* Barra lateral */
+[data-testid="stSidebar"] {
+    background: var(--sidebar);
+}
+
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+    color: var(--text) !important;
 }
 
 /* Campo de entrada */
 [data-testid="stTextInput"] input {
     background-color: var(--white);
     color: var(--text);
+    border: 1px solid var(--border);
     border-radius: 10px;
     padding: 12px;
 }
 
-/* Boton principal */
+[data-testid="stTextInput"] input:focus {
+    border-color: var(--primary);
+}
+
+/* Botones */
 .stButton > button {
-    background: linear-gradient(
-            90deg,
-            #E8A18C,
-            #B96555
-    );
-    color: white;
-    border: none;
+    background: var(--white);
+    color: var(--primary);
+    border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 0.65rem 2rem;
+    padding: 0.65rem 1.5rem;
     font-weight: 600;
     transition: 0.2s ease;
 }
 
-/* Efecto al pasar el mouse */
+/* Efecto hover */
 .stButton > button:hover {
-    background: var(--navy);
-    color: white;
-    border: none;
+    background: #EDE6F2;
+    color: var(--primary);
+    border-color: var(--primary);
     transform: translateY(-2px);
+}
+
+/* Botones principales */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(
+            90deg,
+            #8F79A0,
+            #715B80
+    );
+    color: #FFFFFF;
+    border: none;
+}
+
+.stButton > button[kind="primary"]:hover {
+    background: var(--primary-hover);
+    color: #FFFFFF;
+    border: none;
+}
+
+/* Pestañas */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 12px;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background: #EEE8F2;
+    border-radius: 10px 10px 0 0;
+    color: var(--text);
+    padding: 10px 18px;
+}
+
+.stTabs [aria-selected="true"] {
+    background: var(--primary);
+    color: #FFFFFF;
+}
+
+/* Tarjetas de metricas */
+[data-testid="stMetric"] {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
 }

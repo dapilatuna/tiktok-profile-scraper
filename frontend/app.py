@@ -10,9 +10,11 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from frontend.styles.theme import load_css
+from frontend.components.sidebar import render_sidebar
 from frontend.pages.home import render_home
 from frontend.pages.profile import render_profile
 from frontend.pages.videos import render_videos
+from frontend.pages.embeddings import render_embeddings
 from frontend.services.scraper_service import run_extraction
 from frontend.utils.session_manager import (
     clear_extraction_result,
@@ -22,10 +24,10 @@ from frontend.utils.session_manager import (
 
 
 st.set_page_config(
-    page_title="TikTok Profile Scraper",
+    page_title="TikTok Intelligence",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 st.navigation(
@@ -35,39 +37,50 @@ st.navigation(
 
 load_css()
 
-username, search_button = render_home()
+active_page = render_sidebar()
 
-if search_button:
 
-    clear_extraction_result()
+if active_page == "scraping":
 
-    try:
-        with st.spinner(
-                "Extrayendo información del perfil..."
-        ):
-            extraction_result = run_extraction(username)
+    username, search_button = render_home()
 
-        save_extraction_result(extraction_result)
+    if search_button:
 
-    except ValueError as error:
-        st.error(str(error))
+        clear_extraction_result()
 
-    except Exception as error:
-        st.error(
-            "No se pudo completar la extracción: "
-            f"{error}"
-        )
+        try:
+            with st.spinner(
+                    "Extrayendo información del perfil..."
+            ):
+                extraction_result = run_extraction(username)
 
-result = get_extraction_result()
+            save_extraction_result(extraction_result)
 
-if result is not None:
-    render_profile(result)
-    render_videos(result)
+        except ValueError as error:
+            st.error(str(error))
+
+        except Exception as error:
+            st.error(
+                "No se pudo completar la extracción: "
+                f"{error}"
+            )
+
+    result = get_extraction_result()
+
+    if result is not None:
+        render_profile(result)
+        render_videos(result)
+
+
+elif active_page == "embeddings":
+
+    render_embeddings()
+
 
 st.divider()
 
 st.caption(
-    "TikTok Profile Scraper | "
+    "TikTok Intelligence | "
     "Proyecto académico desarrollado "
     "con Python y Streamlit"
 )
