@@ -1,178 +1,140 @@
-#  TikTok Profile Scraper
+# TikTok Profile Scraper
 
-**Aplicación web para la extracción, procesamiento, visualización y exportación de información pública de perfiles de TikTok.**
+Aplicación web desarrollada en **Python y Streamlit** para extraer, procesar, visualizar y exportar información pública de perfiles de TikTok.
 
-Proyecto académico desarrollado en Python que permite consultar perfiles públicos de TikTok y recopilar información de sus publicaciones recientes, estadísticas de interacción y comentarios disponibles, mediante automatización de navegador y procesamiento de datos.
+## 1. Descripción
 
-## Descripción del proyecto
+El sistema permite consultar un perfil público de TikTok mediante su nombre de usuario y obtener información general, publicaciones recientes, estadísticas de interacción y comentarios disponibles.
 
-TikTok Profile Scraper es una aplicación que integra la extracción de datos web con una interfaz interactiva para presentar información estructurada de cuentas públicas de TikTok.
+La extracción se realiza con **Playwright y Google Chrome**, mediante la lectura de elementos del DOM y datos JSON incrustados en el HTML, **sin utilizar APIs**.
 
-El sistema permite consultar un perfil a partir de su nombre de usuario, recuperar sus datos generales, identificar publicaciones recientes y obtener sus estadísticas de interacción. También incorpora la recopilación de comentarios y respuestas cuando la plataforma permite acceder a esta información.
+## 2. Funcionalidades
 
-Los resultados se presentan en una aplicación desarrollada con Streamlit y pueden exportarse en formato JSON.
-
-## Funcionalidades
-
-### Información del perfil
-
-- Nombre de usuario y nombre público.
-- Biografía.
-- Número de seguidores y cuentas seguidas.
-- Cantidad de me gusta acumulados.
-- Número de publicaciones.
+**Información del perfil**
+- Nombre de usuario, nombre público y biografía.
+- Seguidores, seguidos, me gusta y número de publicaciones.
 - Estado de verificación y privacidad.
-- Enlace al perfil consultado.
 
-### Extracción de publicaciones
+**Publicaciones**
+- Identificación de videos mediante sus enlaces HTML.
+- Detección de publicaciones fijadas.
+- Selección de hasta 10 publicaciones recientes según las fechas disponibles.
+- Extracción de descripción, fecha, visualizaciones, me gusta, comentarios, compartidos, guardados, duración, música y hashtags.
 
-- Identificación de publicaciones del perfil.
-- Selección de hasta diez videos recientes entre los detectados.
-- Identificador y enlace de cada video.
-- Descripción y fecha de publicación.
-- Visualizaciones, me gusta, comentarios, compartidos y guardados.
-- Duración, música y artista.
-- Hashtags disponibles.
+**Comentarios**
+- Recuperación de comentarios y respuestas visibles.
+- Extracción del texto, autor, fecha y me gusta cuando están disponibles.
+- Desplazamiento por los comentarios e intento de expansión de respuestas.
 
-### Comentarios e interacciones
+**Visualización y exportación**
+- Consulta de perfiles mediante una interfaz Streamlit.
+- Visualización de estadísticas y comentarios.
+- Exportación de los resultados en formato JSON.
 
-- Recuperación del texto de comentarios disponibles.
-- Identificación del autor de cada comentario.
-- Fecha de publicación y cantidad de me gusta.
-- Procesamiento de respuestas cuando están incluidas en los datos recibidos.
-- Asociación de cada comentario con su publicación correspondiente.
+## 3. Tecnologías
 
-### Visualización y exportación
-
-- Interfaz web desarrollada con Streamlit.
-- Presentación organizada de perfiles y publicaciones.
-- Indicadores de interacción.
-- Visualización tabular de comentarios recuperados.
-- Consulta de datos estructurados.
-- Exportación de resultados en formato JSON.
-
-## Tecnologías utilizadas
-
-| Tecnología | Aplicación en el proyecto |
+| Tecnología | Función |
 |---|---|
-| **Python** | Lenguaje principal de desarrollo y procesamiento de datos. |
-| **Streamlit** | Construcción de la interfaz web interactiva. |
-| **Playwright** | Automatización de Chrome y observación de las respuestas de red. |
-| **Google Chrome** | Navegador utilizado para consultar el contenido web. |
-| **JSON** | Interpretación, estructuración e intercambio de datos. |
-| **CSS** | Personalización de la apariencia visual de la aplicación. |
-| **Git** | Control de versiones del código fuente. |
-| **GitHub** | Almacenamiento y gestión del repositorio. |
+| Python | Lógica y procesamiento de datos |
+| Playwright | Automatización del navegador y lectura del DOM |
+| Google Chrome | Acceso al contenido de TikTok |
+| Streamlit | Interfaz web |
+| HTML y JSON | Fuentes de información de la página |
+| CSS | Diseño visual |
+| Git y GitHub | Control de versiones |
 
-## Estructura del proyecto
+## 4. Estructura del proyecto
 
-**`backend/` — Lógica de extracción y procesamiento**
+```text
+tiktok-profile-scraper/
+├── backend/
+│   ├── extractors/
+│   │   ├── profile_extractor.py
+│   │   ├── video_extractor.py
+│   │   ├── metadata_extractor.py
+│   │   └── comment_extractor.py
+│   ├── parsers/
+│   │   ├── html_parser.py
+│   │   ├── json_parser.py
+│   │   └── metric_parser.py
+│   ├── models/
+│   │   └── schemas.py
+│   ├── browser_manager.py
+│   ├── scraper.py
+│   └── validator.py
+├── frontend/
+│   ├── components/
+│   ├── pages/
+│   ├── services/
+│   ├── styles/
+│   ├── utils/
+│   ├── app.py
+│   └── styles.css
+├── data/
+├── tests/
+├── .gitignore
+├── README.md
+└── requirements.txt
+```
 
-- `validator.py`: validación del nombre de usuario ingresado.
-- `profile_extractor.py`: extracción de información del perfil público.
-- `video_extractor.py`: identificación, selección y procesamiento de publicaciones.
-- `video_content_extractor.py`: procesamiento de información de videos, comentarios y respuestas.
+**Backend:** contiene la validación, automatización de Chrome, extracción de perfiles, videos y comentarios, procesamiento de datos y coordinación de la consulta.
 
-**`frontend/` — Interfaz de usuario**
+**Frontend:** contiene el formulario de búsqueda, componentes de visualización, presentación de resultados, estilos y exportación JSON.
 
-- `app.py`: aplicación principal desarrollada con Streamlit.
-- `styles.css`: estilos personalizados de la interfaz.
+## 5. Funcionamiento
 
-**Otros elementos**
+1. El usuario ingresa el nombre de un perfil público.
+2. El sistema valida el nombre y abre TikTok mediante Playwright y Chrome.
+3. Extrae los datos del perfil desde el JSON incrustado en el HTML.
+4. Identifica publicaciones mediante selectores del DOM y desplazamiento vertical.
+5. Accede a las publicaciones para recuperar metadatos y comentarios disponibles.
+6. Organiza y selecciona hasta 10 videos según la información de fechas obtenida.
+7. Presenta los resultados en Streamlit y permite exportarlos en JSON.
 
-- `data/`: directorio para archivos y datos locales utilizados durante la ejecución.
-- `requirements.txt`: dependencias de Python.
-- `.gitignore`: exclusión de archivos temporales, entornos virtuales y datos de sesión.
-- `README.md`: documentación del proyecto.
+## 6. Instalación y ejecución
 
-## Requisitos
+**Requisitos:** Python 3.10 o superior, Google Chrome y conexión a Internet.
 
-Antes de ejecutar la aplicación, se necesita:
+Clonar el repositorio:
 
-- Python 3.10 o superior.
-- Google Chrome instalado.
-- Git, si se desea clonar y gestionar el repositorio.
-- Acceso a Internet.
-- Las dependencias indicadas en `requirements.txt`.
+```powershell
+git clone https://github.com/dapilatuna/tiktok-profile-scraper.git
+cd tiktok-profile-scraper
+```
 
-## Instalación y ejecución
+Crear y activar el entorno virtual:
 
-Los siguientes pasos están orientados a Windows con PowerShell.
+```powershell
+python -m venv .venv-scraper
+.\.venv-scraper\Scripts\Activate.ps1
+```
 
-**1. Obtener el proyecto**
+Instalar dependencias:
 
-Clonar el repositorio desde GitHub o descargar su código fuente y abrir la carpeta `tiktok-profile-scraper`.
+```powershell
+python -m pip install -r requirements.txt
+```
 
-**2. Crear un entorno virtual**
+Ejecutar la aplicación:
 
-Ejecutar:
+```powershell
+python -m streamlit run frontend/app.py
+```
 
-`python -m venv .venv-scraper`
+Abrir `http://localhost:8501` en el navegador.
 
-**3. Activar el entorno virtual**
+## 7. Limitaciones
 
-Ejecutar:
+- La extracción depende de la información que TikTok muestre en el navegador.
+- Los cambios en el HTML o las restricciones de acceso pueden afectar el funcionamiento.
+- No siempre se recuperan todas las estadísticas, fechas, comentarios o respuestas.
+- El sistema utiliza desplazamiento vertical para descubrir publicaciones; no implementa paginación.
+- No utiliza APIs ni sesiones persistentes de Chrome.
 
-`.\.venv-scraper\Scripts\Activate.ps1`
+## 8. Estado del proyecto
 
-**4. Instalar las dependencias**
+**Prototipo académico funcional en fase de pruebas.**
 
-Ejecutar:
+El proyecto implementa extracción web mediante automatización de navegador, procesamiento de datos, arquitectura modular e integración entre backend y frontend.
 
-`python -m pip install -r requirements.txt`
-
-**5. Iniciar la aplicación**
-
-Ejecutar:
-
-`streamlit run frontend/app.py`
-
-La aplicación estará disponible normalmente en:
-
-`http://localhost:8501`
-
-## Funcionamiento del sistema
-
-1. El usuario ingresa el nombre de una cuenta pública de TikTok.
-2. El sistema valida el identificador y consulta la información del perfil.
-3. Playwright abre Google Chrome y observa las respuestas generadas durante la navegación.
-4. La aplicación identifica las publicaciones disponibles y procesa sus metadatos.
-5. Se seleccionan hasta diez publicaciones recientes según sus fechas.
-6. Se intenta recuperar los comentarios disponibles utilizando el contexto de navegación.
-7. La información obtenida se organiza y presenta en Streamlit.
-8. El usuario puede revisar y exportar los resultados en formato JSON.
-
-## Gestión de sesiones
-
-La aplicación utiliza un contexto persistente de Chrome mediante Playwright para conservar cookies y datos de navegación entre ejecuciones.
-
-Estos datos se almacenan localmente en `data/chrome_session/` y se excluyen del control de versiones mediante `.gitignore`.
-
-Las cookies y los datos de sesión no deben compartirse ni publicarse en el repositorio.
-
-## Limitaciones y consideraciones
-
-- El sistema está orientado a consultar información de perfiles públicos.
-- La disponibilidad de datos depende de las respuestas proporcionadas por TikTok.
-- La plataforma puede solicitar verificaciones de seguridad o restringir determinadas consultas.
-- Mantener cookies persistentes no garantiza evitar estas verificaciones.
-- No siempre es posible recuperar todos los comentarios o respuestas de una publicación.
-- Las estadísticas representan los valores disponibles en el momento de la extracción.
-- La identificación de las publicaciones más recientes depende de los registros que hayan podido recuperarse.
-- El sistema no utiliza la API oficial de TikTok.
-
-## Estado del desarrollo
-
-**Versión académica funcional, en fase de pruebas y validación.**
-
-Se ha verificado la recuperación de información de perfiles, publicaciones, estadísticas y comentarios disponibles mediante consultas reales.
-
-Como mejoras futuras se contempla ampliar las pruebas de comentarios y respuestas, fortalecer el manejo de restricciones de acceso y continuar incorporando verificaciones para evaluar la consistencia de los resultados.
-
-## Finalidad académica
-
-Este proyecto fue desarrollado con fines de aprendizaje y aplicación práctica de conceptos de programación, automatización web, procesamiento de datos, integración de componentes e interfaces de usuario.
-
-Su desarrollo busca fortalecer competencias relacionadas con el diseño e implementación de soluciones informáticas, la organización de datos y la validación de resultados.
-
-El uso de la aplicación debe respetar la privacidad de los usuarios y las condiciones aplicables al acceso a la información de la plataforma.
+Su finalidad es aplicar conocimientos de Ingeniería en Sistemas mediante el desarrollo de una solución informática para consultar y estructurar información pública.

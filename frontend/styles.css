@@ -5,19 +5,19 @@
 ======================================== */
 
 :root {
-    --navy: #102B46;
-    --turquoise: #079E99;
-    --background: #F0F6FA;
+    --navy: #573A37;
+    --turquoise: #B96555;
+    --background: #FFF5EF;
     --white: #FFFFFF;
-    --text: #17344E;
+    --text: #573A37;
 }
 
 /* Fondo general */
 .stApp {
     background: linear-gradient(
             135deg,
-            #F0F6FA 0%,
-            #E5F4F3 100%
+            #FFF5EF 0%,
+            #FBE4D8 100%
     );
     color: var(--text);
 }
@@ -58,8 +58,8 @@ h2, h3 {
 .stButton > button {
     background: linear-gradient(
             90deg,
-            #079E99,
-            #087E9B
+            #E8A18C,
+            #B96555
     );
     color: white;
     border: none;
