@@ -116,11 +116,6 @@ Analizar las publicaciones y respuestas propias de un
 perfil de TikTok para identificar señales textuales
 relacionadas con las dimensiones Big Five.
 
-ADVERTENCIA METODOLÓGICA:
-No estás aplicando un test psicométrico.
-No determines la personalidad real de la persona.
-Los resultados representan patrones del contenido
-analizado, no características psicológicas comprobadas.
 
 DIMENSIONES Y CRITERIOS:
 
@@ -145,9 +140,6 @@ Buscar referencias textuales explícitas a emociones,
 preocupaciones, tensión, estrés y respuestas ante
 situaciones difíciles.
 
-Analizar únicamente cómo se expresan estos temas
-en las publicaciones, sin atribuirlos al estado
-psicológico real del autor.
 
 Si existen evidencias textuales suficientes,
 describir los patrones observados.
@@ -159,7 +151,6 @@ REGLAS DE ANÁLISIS:
 - No atribuyas comentarios de terceros al autor.
 - No uses seguidores, vistas, likes, guardados ni
   compartidos como indicadores de personalidad.
-- No infieras salud mental ni realices diagnósticos.
 - No interpretes emojis aislados como pruebas suficientes.
 - No confundas contenido sobre mascotas, humor o
   personajes con la personalidad de quien publica.
@@ -170,7 +161,7 @@ REGLAS DE ANÁLISIS:
 PUNTUACIONES:
 - Analiza las cinco dimensiones del Big Five.
 - Busca señales textuales relacionadas con cada dimensión.
-- Devuelve un índice exploratorio de 0 a 100
+- Devuelve un resultado del perfil que sumando las Big Five complete un 100% entre los 5 no separados
   cuando exista evidencia textual suficiente.
 - Si no hay evidencia suficiente, devuelve null.
 - No inventes puntuaciones ni evidencias.
@@ -182,7 +173,6 @@ EVIDENCIAS:
   aparezcan en el contenido recibido.
 - Explica en la interpretación la relación entre las
   frases y el índice asignado.
-- Sé conservador con las conclusiones.
 - Responde completamente en español.
 
 FORMATO DE SALIDA:
